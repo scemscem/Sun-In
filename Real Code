@@ -1,0 +1,169 @@
+Here you can find the real code, setted on Turin (Italy)
+
+#include <FastLED.h>
+#include <RTClib.h>
+
+// How many leds in your strip?
+#define NUM_LEDS 97
+
+// For led chips like WS2812, which have a data line, ground, and power, you just
+// need to define DATA_PIN.  For led chipsets that are SPI based (four wires - data, clock,
+// ground, and power), like the LPD8806 define both DATA_PIN and CLOCK_PIN
+// Clock pin only needed for SPI based chipsets when not using hardware SPI
+#define DATA_PIN 6
+#define CLOCK_PIN 13
+
+//initializing clock
+RTC_DS1307 rtc;
+// Define the array of leds
+CRGB leds[NUM_LEDS];
+// Define min and max daylight time, min and max zenit time
+float min_zenit=12.5;
+float max_zenit=13.5;
+float min_daylight=9;
+float max_daylight=14;
+
+struct array{
+  float a[3];
+};
+
+float validate_color(float c){
+  if(c>255){
+    return 255;
+  }
+  if(c<0){
+    return 0;
+  }
+  return c;
+}
+
+float linear(float low, float high, float n, float ini, float fin){
+  float c=(n-low)/(high-low);
+  return ini+c*(fin-ini);
+}
+
+int day_number(int giorno, int mese){
+  int n= giorno+mese*30-30;
+  int m=(n+8)%360;
+  return m;
+}
+
+//21 luglio=201-->209, 22 dicembre=352-->0
+float zenit(int m){
+  if(m<210){
+    return m/209+min_zenit;
+  }else{
+    return max_zenit-(m-209)/151;
+  }
+}
+
+float daylight(int m){
+  if(m<210){
+    return m/209+min_daylight;
+  }else{
+    return max_daylight-(m-209)/151;
+  }
+}
+
+//red-->purple-->blue
+array morning_color(int n){
+  float color[3];
+  if(n<210){
+    color[0]=linear(0,209,n,0,255);
+    color[2]=linear(0,209,n,255,0);
+  }else{
+    color[2]=linear(209,360,n,0,255);
+    color[0]=linear(209,360,n,255,0);
+  }
+  color[1]=0;
+  for(int i=0; i<3; i++){
+    color[i]=validate_color(color[i]);
+  }
+  array colore;
+  for(int i=0; i<3; i++){
+    colore.a[i]=color[i];
+  }
+  return colore;
+}
+
+//yellow-->white
+array zenit_color(int n){
+  float color[3];
+  color[0]=255;
+  color[1]=255;
+  if(n<210){
+    color[2]=linear(0,209,n,255,0);
+  }else{
+    color[2]=linear(209,360,n,0,255);
+  }
+  for(int i=0; i<3; i++){
+    color[i]=validate_color(color[i]);
+  }
+  array colore;
+  for(int i=0; i<3; i++){
+    colore.a[i]=color[i];
+  }
+  return colore;
+}
+
+float brightness(float time, int n){
+  return pow(2,-4*((time-zenit(n))/daylight(n))*((time-zenit(n))/daylight(n)));
+}
+
+//morning-->zenit-->morning
+array time_color(float time, int n){
+  array mc=morning_color(n);
+  array zc=zenit_color(n);
+  float color[3];
+  for(int i=0;i<3;i++){
+    if(time<zenit(n)){
+      color[i]=linear(0,zenit(n),time,mc.a[i],zc.a[i]);
+    }else{
+      color[i]=linear(zenit(n),24,time,zc.a[i],mc.a[i]);      
+    }
+  }
+  for(int i=0; i<3; i++){
+    color[i]=validate_color(color[i]);
+  }
+  array colore;
+  for(int i=0; i<3; i++){
+    colore.a[i]=color[i];
+  }
+  return colore;
+}
+
+void setup() {
+  Serial.begin(9600);
+  if (! rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    Serial.flush();
+    abort();
+  }
+  if (! rtc.isrunning()) {
+    Serial.println("RTC is NOT running, let's set the time!");
+    // When time needs to be set on a new device, or after a power loss, the
+    // following line sets the RTC to the date & time this sketch was compiled
+    rtc.adjust(DateTime(F(_DATE), F(TIME_)));
+    // This line sets the RTC with an explicit date & time, for example to set
+    // January 21, 2014 at 3am you would call:
+    // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
+  }
+
+  FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);  // GRB ordering is typical
+  FastLED.show();
+}
+
+void loop() {
+  DateTime now=rtc.now();
+  int daynumber=day_number(now.day(), now.month());
+  array color;
+  float time=now.hour()+now.minute()/60;
+  color=time_color(time, daynumber);
+  for(int i=0; i<NUM_LEDS; i++){
+    for(int c=0; c<3; c++){
+      leds[i][c]=color.a[c]*brightness(time, daynumber);
+    }
+  }
+  FastLED.show();
+  delay(60000);
+}
