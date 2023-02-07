@@ -1,0 +1,155 @@
+here you can find a simulation code. Within 4 minuts Sun-In will play the entire year.
+
+#include <FastLED.h>
+
+#define NUM_LEDS 97
+#define DATA_PIN 6
+#define CLOCK_PIN 13
+
+// Define the array of leds
+CRGB leds[NUM_LEDS];
+// Define min and max daylight time, min and max zenit time
+float min_zenit=12.5;
+float max_zenit=13.5;
+float min_daylight=9;
+float max_daylight=14;
+
+struct array{
+  float a[3];
+};
+
+float validate_color(float c){
+  if(c>255){
+    return 255;
+  }
+  if(c<0){
+    return 0;
+  }
+  return c;
+}
+
+float linear(float low, float high, float n, float ini, float fin){
+  float c=(n-low)/(high-low);
+  return ini+c*(fin-ini);
+}
+
+int day_number(int giorno, int mese){
+  int n= giorno+mese*30-30;
+  int m=(n+8)%360;
+  return m;
+}
+
+//21 luglio=201-->209, 22 dicembre=352-->0
+float zenit(int m){
+  if(m<210){
+    return m/209+min_zenit;
+  }else{
+    return max_zenit-(m-209)/151;
+  }
+}
+
+float daylight(int m){
+  if(m<210){
+    return m/209+min_daylight;
+  }else{
+    return max_daylight-(m-209)/151;
+  }
+}
+
+//red-->purple-->blue
+float summer_morning[3]={255, 0, 150};
+float winter_morning[3]={200, 0, 255};
+array morning_color(int n){
+  float color[3];
+  if(n<210){
+    for(int i=0; i<3; i++){
+      color[i]=linear(0,209,n,winter_morning[i],summer_morning[i]);
+    }
+  }else{
+    for(int i=0; i<3; i++){
+      color[i]=linear(209,360,n,summer_morning[i],winter_morning[i]);
+    }
+  }
+  for(int i=0; i<3; i++){
+    color[i]=validate_color(color[i]);
+  }
+  array colore;
+  for(int i=0; i<3; i++){
+    colore.a[i]=color[i];
+  }
+  return colore;
+}
+
+//yellow-->white
+float summer_zenit[3]={220, 200, 50};
+float winter_zenit[3]={255, 255, 255};
+array zenit_color(int n){
+  float color[3];
+  if(n<210){
+    for(int i=0; i<3; i++){
+      color[i]=linear(0,209,n,winter_zenit[i],summer_zenit[i]);
+    }
+  }else{
+    for(int i=0; i<3; i++){
+      color[i]=linear(209,360,n,summer_zenit[i],winter_zenit[i]);
+    };
+  }
+  for(int i=0; i<3; i++){
+    color[i]=validate_color(color[i]);
+  }
+  array colore;
+  for(int i=0; i<3; i++){
+    colore.a[i]=color[i];
+  }
+  return colore;
+}
+
+float brightness(float time, int n){
+  return pow(2,-8*((time-zenit(n))/daylight(n))*((time-zenit(n))/daylight(n)));
+}
+
+//morning-->zenit-->morning
+array time_color(float time, int n){
+  array mc=morning_color(n);
+  array zc=zenit_color(n);
+  float color[3];
+  for(int i=0;i<3;i++){
+    if(time<zenit(n)){
+      color[i]=linear(0,zenit(n),time,mc.a[i],zc.a[i]);
+    }else{
+      color[i]=linear(zenit(n),24,time,zc.a[i],mc.a[i]);      
+    }
+  }
+  for(int i=0; i<3; i++){
+    color[i]=validate_color(color[i]);
+  }
+  array colore;
+  for(int i=0; i<3; i++){
+    colore.a[i]=color[i];
+  }
+  return colore;
+}
+
+void setup() {
+  Serial.begin(9600);
+
+  FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);  // GRB ordering is typical
+  FastLED.show();
+}
+
+int day1= 210;
+void loop() {
+  int daynumber=(day1+90*(millis()/30000))%360;
+  array color;
+  float time=(millis()*0.0008);
+  int int_time=time/24;
+  time=time-24*int_time;
+  color=time_color(time, daynumber);
+  for(int i=0; i<NUM_LEDS; i++){
+    for(int c=0; c<3; c++){
+      leds[i][c]=color.a[c]*brightness(time, daynumber);
+    }
+  }
+  FastLED.show();
+  delay(20);
+}
